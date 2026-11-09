@@ -1,0 +1,15 @@
+{
+  "name": "handoff",
+  "description": "Session handoffs for Claude Code",
+  "owner": {
+    "name": "Milenko Tomic",
+    "url": "https://github.com/milenkotomic"
+  },
+  "plugins": [
+    {
+      "name": "handoff",
+      "source": "./",
+      "description": "Save the live state of a task to a scrubbed handoff file outside the repo, and resume from it in a fresh session."
+    }
+  ]
+}

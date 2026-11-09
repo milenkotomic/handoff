@@ -1,0 +1,10 @@
+- The skill runs the helper script's `context` and `save` subcommands rather than writing the handoff file directly
+- The stored handoff path is under ~/.claude/handoffs (or HANDOFF_HOME), not inside the repository
+- The stored handoff does not contain the string ghp_abcdefghijklmnopqrstuvwxyz0123456789AB
+- The handoff records the decision to keep limits in config/ratelimit.json with the reason that ops edits it without a deploy
+- The handoff lists the dropped in-memory Map approach and why it failed
+- The first next step is about the bucket refill tests and names a file or command
+- The handoff links docs/specs/rate-limit.md and commit a1b2c3d instead of restating their contents
+- The handoff states the next session focus is the tests
+- The final reply gives the stored path and how to resume
+- No em dashes in the handoff

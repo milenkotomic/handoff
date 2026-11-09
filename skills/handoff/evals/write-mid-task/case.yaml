@@ -1,0 +1,7 @@
+name: write-mid-task
+description: >
+  The user is mid-task and asks for a handoff, passing the focus of the next
+  session and a pasted token. A good handoff is stored outside the repo with
+  the script, follows the template, keeps the user's decision with its reason,
+  makes the first next step concrete, links instead of copying, and never
+  stores the token.

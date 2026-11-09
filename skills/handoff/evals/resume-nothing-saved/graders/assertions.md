@@ -1,0 +1,5 @@
+- The skill runs the helper script's `latest` subcommand
+- The reply says no handoff exists for this project
+- The reply does not present a reconstructed task state, goal or next steps as if they came from a handoff
+- The reply does not edit any files
+- The reply is in Spanish, matching the user, and uses no voseo

@@ -1,0 +1,5 @@
+name: resume-nothing-saved
+description: >
+  A fresh session asks where it left off, but no handoff exists for this
+  project. The skill must say there is none and not invent a state from the
+  repo or git history.
