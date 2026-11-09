@@ -46,26 +46,28 @@ with `python3 skills/handoff/scripts/handoff.py scrub <file>`.
 
 Requires Claude Code and Python 3.
 
-The repo is its own plugin marketplace. From a shell:
+The plugin is published through my plugin marketplace,
+[milenkotomic/claude-plugins](https://github.com/milenkotomic/claude-plugins).
+From a shell:
 
 ```sh
-claude plugin marketplace add milenkotomic/handoff
-claude plugin install handoff@handoff
+claude plugin marketplace add milenkotomic/claude-plugins
+claude plugin install handoff@milenkotomic
 ```
 
-Or inside Claude Code: `/plugin marketplace add milenkotomic/handoff`, then
-`/plugin install handoff@handoff`. Start a new session and type
+Or inside Claude Code: `/plugin marketplace add milenkotomic/claude-plugins`,
+then `/plugin install handoff@milenkotomic`. Start a new session and type
 `/handoff:handoff`.
 
 ### Update
 
 ```sh
-claude plugin marketplace update handoff
-claude plugin update handoff@handoff
+claude plugin marketplace update milenkotomic
+claude plugin update handoff@milenkotomic
 ```
 
-Restart Claude Code afterwards. The plugin runs from a cached copy, so changes
-pushed to this repo reach you only through an update.
+Restart Claude Code afterwards. The plugin runs from a cached copy, so
+changes pushed to this repo reach you only through an update.
 
 ### Developing the skill
 
@@ -86,7 +88,7 @@ skills/handoff/
   scripts/handoff.py   store paths, secret scrubbing, latest/list; Python 3 stdlib only
   evals/               test cases for `claude plugin eval`
 install.sh             symlink install for developing the skill
-.claude-plugin/        plugin.json and marketplace.json
+.claude-plugin/        plugin.json
 ```
 
 ## Credits
