@@ -29,28 +29,49 @@ ROOT = Path(os.environ.get("HANDOFF_HOME", Path.home() / ".claude" / "handoffs")
 DRAFT = "draft.tmp"
 
 # Each pattern is redacted to [REDACTED:<label>]. Order matters: the specific
-# token shapes run before the generic key=value rule.
+# token shapes run before the generic key=value rule. A group named "keep" is
+# the part of the match that stays (a header name, a user name, a URL prefix).
 SECRET_PATTERNS = [
-    ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)),
+    ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----.*?-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----", re.S)),
     ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github-token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,})\b")),
+    ("gitlab-token", re.compile(r"\bgl(?:pat|dt|rt|cbt|ptt)-[A-Za-z0-9_\-]{20,}")),
+    ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{30,}")),
+    ("huggingface-token", re.compile(r"\bhf_[A-Za-z0-9]{30,}")),
     ("anthropic-key", re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}")),
     ("openai-key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}")),
-    ("slack-token", re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}")),
+    ("slack-token", re.compile(r"\b(?:xox[abposre]|xapp)-[A-Za-z0-9\-]{10,}")),
+    ("webhook-url", re.compile(r"(?P<keep>https://(?:hooks\.slack\.com/services|(?:discord|discordapp)\.com/api/webhooks)/)[A-Za-z0-9/_\-]+")),
     ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b")),
-    ("stripe-key", re.compile(r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}")),
+    ("google-oauth-token", re.compile(r"\bya29\.[A-Za-z0-9_\-.]{20,}")),
+    ("sendgrid-key", re.compile(r"\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}")),
+    ("stripe-key", re.compile(r"\b(?:[rs]k_(?:live|test)|whsec)_[A-Za-z0-9]{16,}")),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}")),
     ("bearer", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/\-]{16,}=*")),
+    ("basic-auth", re.compile(r"(?i)(?P<keep>\bauthorization[\"']?\s*[:=]\s*[\"']?basic\s+)[A-Za-z0-9+/]{8,}={0,2}")),
     ("url-credentials", re.compile(r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)")),
+    # curl -u user:pass (but not docker -u 1000:1000)
+    ("cli-credentials", re.compile(r"(?P<keep>(?<![\w\-])(?:-u|--user)[\s=]+[\"']?[^\s:\"']+:)(?!\d+(?![^\s\"']))[^\s\"']+")),
+    # mysql -pSECRET
+    ("cli-password", re.compile(r"(?P<keep>\b(?:mysql|mysqldump|mysqladmin|mariadb)\b[^\n|;&]*?\s-p)[^\s\-]\S*")),
 ]
-# key = value / key: value / "key": "value" where the key name looks secret.
+# key = value / key: value / "key": "value" / "the password is value", where
+# the key name looks secret. The key is matched from the keyword on (no leading
+# wildcard) and its tail is bounded, so a long unbroken token stays linear.
 GENERIC = re.compile(
     r"""(?ix)
-    (?P<key>\b[\w.\-]*(?:password|passwd|pwd|secret|token|api[_\-]?key|apikey|access[_\-]?key|private[_\-]?key|client[_\-]?secret|auth)[\w.\-]*\b["']?)
-    (?P<sep>\s*[:=]\s*["']?)
-    (?P<val>[^\s"'`,;]{8,})
+    (?P<key>(?:(?<!1)password|passwd|pwd|passphrase|secret|token|api[_\-]?key|apikey
+        |access[_\-]?key|private[_\-]?key|credentials?|cookie|session[_\-]?id
+        |auth(?!or(?!i[sz])))[\w.\-]{0,40}["']?)
+    (?P<sep>\s*[:=]\s*|\s+(?:is|was)\s+)
+    (?P<val>"[^"\n]{4,}"|'[^'\n]{4,}'|[^\s"'`,;]{6,})
     """
 )
+# Values that are plainly not secrets: literals and references to a secret
+# that lives somewhere else.
+LITERALS = {"true", "false", "none", "null", "nil", "undefined", "required", "optional"}
+REFERENCE = re.compile(r"(?i)(?:\$|<|\{\{|os\.environ|os\.getenv|process\.env|env\.|ENV\[|System\.getenv|secrets\.|vault:)")
+CONFIG_LINE = re.compile(r"\s*(?:export\s+)?[\"']?[\w.\-]*")
 
 
 def scrub(text):
@@ -58,19 +79,36 @@ def scrub(text):
     counts = {}
 
     def sub(label, pattern, s):
-        def repl(_m):
+        def repl(m):
             counts[label] = counts.get(label, 0) + 1
-            return f"[REDACTED:{label}]"
+            keep = m.groupdict().get("keep") or ""
+            return f"{keep}[REDACTED:{label}]"
         return pattern.sub(repl, s)
 
     for label, pattern in SECRET_PATTERNS:
         text = sub(label, pattern, text)
 
     def generic_repl(m):
-        if m.group("val").startswith("[REDACTED"):
+        key, sep, val = m.group("key").lower(), m.group("sep"), m.group("val")
+        quoted = val[0] in "\"'"
+        bare = val.strip("\"'")
+        if bare.startswith("[REDACTED") or bare.lower() in LITERALS or REFERENCE.match(bare):
             return m.group(0)
+        if bare.isdigit() and "token" in key:
+            return m.group(0)  # max_tokens: 4096 is a count
+        has_digit = any(c.isdigit() for c in bare)
+        if sep.strip() not in (":", "="):
+            # prose ("the password is ..."): only values that look generated
+            if len(bare) < 8 or not has_digit or not any(c.isalpha() for c in bare):
+                return m.group(0)
+        elif not quoted and ":" in sep and bare.rstrip(".").isalpha():
+            # "auth: session cookies" in a sentence is prose; "password: swordfish"
+            # at the start of a line is config
+            line_start = m.string.rfind("\n", 0, m.start()) + 1
+            if not CONFIG_LINE.fullmatch(m.string, line_start, m.start()):
+                return m.group(0)
         counts["secret-value"] = counts.get("secret-value", 0) + 1
-        return f"{m.group('key')}{m.group('sep')}[REDACTED:secret-value]"
+        return f"{m.group('key')}{sep}[REDACTED:secret-value]"
 
     text = GENERIC.sub(generic_repl, text)
     return text, counts
@@ -94,7 +132,23 @@ def project_key(root):
 
 
 def project_dir(root=None):
-    return ROOT / project_key(root or project_root())
+    root = root or project_root()
+    store = ROOT.expanduser().resolve()
+    if "HANDOFF_HOME" in os.environ:
+        # A repo that manages to set HANDOFF_HOME must not be able to pull the
+        # store inside itself: it could then plant the handoff a session
+        # resumes from, and saved handoffs would land in commits.
+        proj = root.resolve()
+        if store == proj or proj in store.parents:
+            sys.exit(f"refusing HANDOFF_HOME={store}: it is inside the project ({proj}); handoffs must live outside the repo")
+    return store / project_key(root)
+
+
+def ensure_store(d):
+    """Create the store root and the project folder, both owner-only."""
+    for p in (d.parent, d):
+        p.mkdir(parents=True, exist_ok=True)
+        os.chmod(p, 0o700)
 
 
 def slugify(s):
@@ -127,11 +181,12 @@ def age(path):
 def cmd_context(_args):
     root = project_root()
     d = project_dir(root)
-    d.mkdir(parents=True, exist_ok=True)
-    os.chmod(d, 0o700)
+    ensure_store(d)
     print(f"project: {root}")
     print(f"store:   {d}")
     print(f"draft:   {d / DRAFT}")
+    if (d / DRAFT).exists():
+        print("stale draft: an unscrubbed draft from an interrupted save is at the draft path; overwrite or delete it")
     branch = git("branch", "--show-current", cwd=root)
     if branch is None and git("rev-parse", "--git-dir", cwd=root) is None:
         print("git:     not a git repository")
@@ -158,14 +213,18 @@ def cmd_save(args):
         m = re.search(r"^#\s*Handoff:\s*(.+)$", clean, re.M)
         slug = m.group(1) if m else "task"
     d = project_dir()
-    d.mkdir(parents=True, exist_ok=True)
-    os.chmod(d, 0o700)
+    ensure_store(d)
     stamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M")
     out = d / f"{stamp}_{slugify(slug)}.md"
-    out.write_text(clean, encoding="utf-8")
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # never world-readable, even briefly
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(clean)
     os.chmod(out, 0o600)
-    if src.resolve() != out.resolve():
+    # Delete only our own draft. Any other path is the caller's file.
+    if src.resolve() == (d / DRAFT).resolve():
         src.unlink()  # the unscrubbed draft must not linger
+    else:
+        print(f"note: {src} is not the draft path, so it was left in place (it is unscrubbed)", file=sys.stderr)
     print(out)
     if counts:
         print("redacted: " + ", ".join(f"{k} x{v}" for k, v in sorted(counts.items())))

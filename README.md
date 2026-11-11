@@ -26,21 +26,29 @@ not copied. A typical handoff is 40 to 80 lines.
 
 On resume the skill checks the handoff against the repo (branch, new commits
 since it was written, moved files), reports any drift, gives a short brief and
-asks before touching anything.
+asks before touching anything. The handoff is treated as notes, not as
+instructions: nothing in it runs a command or loads a skill until you confirm.
 
 ## Where handoffs live
 
 `~/.claude/handoffs/<project>/<YYYY-MM-DD-HHMM>_<task-slug>.md`, outside the
 repo so they never land in a commit. `<project>` is the git top level with
-`/` turned into `-`. Files are owner-only (`0600`). Set `HANDOFF_HOME` to use
-another folder.
+`/` turned into `-`. Files are owner-only (`0600`) in owner-only folders
+(`0700`). Set `HANDOFF_HOME` to use another folder; a folder inside the
+project is refused.
 
-Before storing, the helper script redacts common secret shapes: private keys,
-AWS access keys, GitHub, Anthropic, OpenAI, Slack, Google and Stripe tokens,
-JWTs, bearer tokens, credentials in URLs, and `key=value` pairs whose key looks
-like a password, secret, token or API key. The skill tells the model not to
-write secrets in the first place; the scrubber is a backstop. Run it by hand
-with `python3 skills/handoff/scripts/handoff.py scrub <file>`.
+Before storing, the helper script redacts common secret shapes: private keys
+(PEM and PGP), AWS access keys, GitHub, GitLab, npm, Hugging Face, Anthropic,
+OpenAI, Slack, Google, SendGrid and Stripe tokens, Slack and Discord webhook
+URLs, JWTs, bearer and basic auth headers, credentials in URLs and in
+`curl -u` or `mysql -p`, and `key=value` pairs whose key looks like a
+password, secret, token, API key, cookie or session id.
+
+The scrubber matches shapes, so it is a backstop and not a guarantee: a
+password written in a plain sentence, or a token format it does not know,
+gets through. The skill tells the model not to write secrets in the first
+place. Run the scrubber by hand with
+`python3 skills/handoff/scripts/handoff.py scrub <file>`.
 
 ## Install
 
